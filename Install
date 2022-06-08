@@ -1,93 +1,68 @@
 #!/bin/bash
 
-#variables
-echo "Enter administrator username:"
-read administratorUsername
+# Variables
+keyboard_layout="dk"
+time_zone="America/Godthab"
+root_password="c"
+root_password_diff="d"
 
-administratorPassword=a
-adminsitratorPassword2=b
-rootPassword=c
-rootPassword2=d
-
-until [[ $administratorPassword == $administratorPassword2 ]]
-do
-echo "Enter administrator password:"
-read -s administratorPassword
-echo "Enter administrator password again:"
-read -s administratorPassword2
-if [[ $administratorPassword2 != $administratorPassword ]]
-then
-echo "Passwords do not match!"
-fi
-done
-
-until [[ $rootPassword == $rootPassword2 ]]
-do
-echo "Enter root password:"
-read -s rootPassword
-echo "Enter root password again:"
-read -s rootPassword2
-if [[ $rootPassword2 != $rootPassword ]]
-then
-echo "Passwords do not match!"
-fi
+until [[ ${root_password} == ${root_password_diff} ]]; do
+  printf "Enter root password:\n"
+  read -s root_password
+  printf "Enter root password again:\n"
+  read -s root_password_diff
+  if [[ $root_password_diff != $root_password ]]; then
+    printf "Passwords do not match!\n"
+  fi
 done
 
 echo "Enter hostname:"
 read hostname
 
-#Make partitions
+# Create partitions
 parted --script /dev/sda \
 mklabel gpt \
-mkpart primary fat32 2MiB 514MiB \
+mkpart primary fat32 2MiB 130MiB \
 set 1 esp on \
-mkpart primary ext4 514MiB 100%
+mkpart primary ext4 130MiB 100%
 
-#format partitions
+# Format partitions
 mkfs.fat -F32 /dev/sda1
 mkfs.ext4 /dev/sda2
 
-#mount partitions
+# Mount partitions
 mount /dev/sda2 /mnt
 mkdir /mnt/efi
 mount /dev/sda1 /mnt/efi
 
-#install packages
-pacstrap /mnt base base-devel linux-hardened linux-firmware nano networkmanager grub efibootmgr
+# Install packages
+pacstrap /mnt base linux-hardened linux-firmware nano networkmanager grub efibootmgr
 
-#generate fstab
+# Generate fstab
 genfstab -U /mnt >> /mnt/etc/fstab
 
-#System configuration
-#1-4: NTP enable, timezone symlink, set system timezone, synchronize hwclock
-#5-7: Uncomment EN US locale, locale generation, set LANG variable
-#8: Set keyboard layout upon boot
-#9-10: Set hostname, add hosts
-#11: Uncomment wheel group to allow sudo
-#12-13: Allow 32bit packages
-#14-15: Enable DHCP, enable NetworkManager to start on boot
-#16-18: Create admin user, set admin password, set root password
-#19: Create new initramfs
-#20-21: Install GRUB
+# System configuration
+# 52-55: NTP enable, timezone symlink, set system timezone, synchronize hwclock
+# 56-59: Uncomment en_US locale, locale generation, set LANG variable, set keyboard layout
+# 60-61: Set hostname, add hosts
+# 62-63: Enable DHCP, enable NetworkManager service
+# 64: Set root password
+# 65-66: Install GRUB, create GRUB configuration file
+
 arch-chroot /mnt /bin/bash << EOF
 timedatectl set-ntp true
-ln -sf /usr/share/zoneinfo/America/Godthab /etc/localtime
-timedatectl set-timezone America/Godthab
+ln -sf "/usr/share/zoneinfo/${time_zone}" "/etc/localtime"
+timedatectl set-timezone "${time_zone}"
 hwclock --systohc
-sed -i "177s|.*|en_US.UTF-8 UTF-8|" /etc/locale.gen
+sed -i "/#en_US.UTF-8 UTF-8/s|#||" /etc/locale.gen
 locale-gen
-echo "LANG=en_US.UTF-8" > /etc/locale.conf
-echo "KEYMAP=dk" > /etc/vconsole.conf
-echo $hostname > /etc/hostname
-echo -e "127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t$hostname.localdomain\t$hostname" >> /etc/hosts
-sed -i "82s|.*|%wheel ALL=(ALL) ALL|" /etc/sudoers
-sed -i "92s|.*|[multilib]|" /etc/pacman.conf
-sed -i "93s|.*|Include = /etc/pacman.d/mirrorlist|" /etc/pacman.conf
-echo -e "[main]\ndhcp=dhclient" > /etc/NetworkManager/conf.d/dhcp-client.conf
+printf "LANG=en_US.UTF-8\n" > /etc/locale.conf
+printf "KEYMAP=${keyboard_layout}\n" > /etc/vconsole.conf
+printf "${hostname}\n" > /etc/hostname
+printf "127.0.0.1\tlocalhost\n::1\t\tlocalhost\n127.0.1.1\t${hostname}.localdomain\t${hostname}\n" >> /etc/hosts
+printf "[main]\ndhcp=dhclient\n" > /etc/NetworkManager/conf.d/dhcp-client.conf
 systemctl enable NetworkManager
-useradd -G wheel -m $administratorUsername
-echo $administratorUsername:$administratorPassword | chpasswd
-echo root:$rootPassword | chpasswd
+printf "root:${root_password}\n" | chpasswd
 grub-install --target=x86_64-efi --efi-directory=/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 EOF
